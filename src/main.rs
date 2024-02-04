@@ -23,11 +23,17 @@ fn main() {
     let file = File::open(&args.path).expect("failed to open file");
     let mut reader = BufReader::new(&file);
 
-    let mut buffer = vec![0u16; nx];
-    let mut sum = vec![0f64; nx * ny];
-
     let n_image = file.metadata().unwrap().len() as usize / nx / ny / 2;
     print!("n images: {}\n", n_image);
+
+    let sum = mean_images(&mut reader, nx, ny, n_image);
+    let out_path = args.path.with_extension("sum");
+    save_image(sum, &out_path);
+}
+
+fn mean_images(reader: &mut BufReader<&File>, nx: usize, ny: usize, n_image: usize) -> Vec<f64> {
+    let mut buffer = vec![0u16; nx];
+    let mut sum = vec![0f64; nx * ny];
 
     for i in 0..n_image {
         for y in 0..ny {
@@ -55,8 +61,11 @@ fn main() {
         sum[i] /= n_image as f64;
     }
 
-    let out_path = args.path.with_extension("sum");
-    let out_file = File::create(&out_path).expect("failed to create file");
+    sum
+}
+
+fn save_image(sum: Vec<f64>, path: &std::path::Path) {
+    let out_file = File::create(&path).expect("failed to create file");
     let mut writer = BufWriter::new(&out_file);
 
     for value in sum {
