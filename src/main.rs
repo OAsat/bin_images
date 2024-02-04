@@ -2,31 +2,62 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 const DEFAULT_SIZE: usize = 2048;
 
 #[derive(Parser)]
 struct Cli {
     path: std::path::PathBuf,
 
+    #[clap(short, long, default_value = "mean")]
+    mode: Mode,
+
     #[clap(short, long, default_value_t = DEFAULT_SIZE)]
     xsize: usize,
     #[clap(short, long, default_value_t = DEFAULT_SIZE)]
     ysize: usize,
+
+    #[clap(short, long)]
+    shift_data: Option<std::path::PathBuf>,
+}
+
+#[derive(ValueEnum, Clone)]
+enum Mode {
+    Detect,
+    Mean,
+    All,
 }
 
 fn main() {
     let args = Cli::parse();
+
+    match args.mode {
+        Mode::Mean => mean_mode(args),
+        Mode::Detect => detect_mode(args),
+        Mode::All => all_mode(args),
+    }
+}
+
+fn detect_mode(_args: Cli) {
+    unimplemented!()
+}
+
+fn all_mode(_args: Cli) {
+    unimplemented!()
+}
+
+fn mean_mode(args: Cli) {
     let nx = args.xsize;
     let ny = args.ysize;
 
     let file = File::open(&args.path).expect("failed to open file");
-    let mut reader = BufReader::new(&file);
 
     let n_image = file.metadata().unwrap().len() as usize / nx / ny / 2;
     print!("n images: {}\n", n_image);
 
+    let mut reader = BufReader::new(&file);
     let sum = mean_images(&mut reader, nx, ny, n_image);
+
     let out_path = args.path.with_extension("sum");
     save_image(sum, &out_path);
 }
