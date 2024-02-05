@@ -6,16 +6,16 @@ Data: Little-endian `u16` file.
 
 ### Taking mean
 
-`bin_images mean <IMG_PATH>`
+`bin_images mean <PATH>`
 
 #### Optional arguments
 
 - `--out <OUT_PATH>`
-- `--shift_data <SHIFT_PATH>`
+- `--shift_data <SHIFT_DATA_PATH>`
 
-### Shift detection
+### Drift detection
 
-`bin_images detect <IMG_PATH>`
+`bin_images detect <PATH>`
 
 #### Optional arguments
 
