@@ -15,3 +15,5 @@ Cargo.lock
 
 # Sample data
 assets/
+
+.DS_Store

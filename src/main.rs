@@ -52,16 +52,18 @@ fn detect_mode(args: Cli) {
 
     reader.read_u16_into::<LittleEndian>(&mut buffer).unwrap();
     let pos0 = find_point(&buffer, nx, ny);
-    print!("pos0: {:?}\n", pos0);
 
-    let mut out = vec![0i16; n_image * 3];
+    let mut out: Vec<i16> = Vec::with_capacity(n_image * 3);
 
     for i in 1..n_image {
         reader.read_u16_into::<LittleEndian>(&mut buffer).unwrap();
         let pos = find_point(&buffer, nx, ny);
-        out[3 * i] = i as i16;
-        out[3 * i + 1] = pos[0] as i16 - pos0[0] as i16;
-        out[3 * i + 2] = pos[1] as i16 - pos0[1] as i16;
+        let x_shift = pos[0] as i16 - pos0[0] as i16;
+        let y_shift = pos[1] as i16 - pos0[1] as i16;
+        print!("{:?}, {:?}\n", x_shift, y_shift);
+        if x_shift.abs() < 100 && y_shift.abs() < 100 {
+            out.extend([i as i16, x_shift, y_shift]);
+        }
     }
 
     let out_path = args.path.with_extension("shift");
@@ -105,20 +107,22 @@ fn mean_mode(args: Cli) {
 
     let shift_data = if let Some(shift_path) = args.shift_data {
         let mut shift_file = File::open(&shift_path).expect("failed to open file");
-        let mut buffer = vec![0i16; n_image * 3];
+        let n_mean = shift_file.metadata().unwrap().len() as usize / 6;
+        let mut buffer = vec![0i16; n_mean * 3];
         shift_file
             .read_i16_into::<LittleEndian>(&mut buffer)
             .unwrap();
         buffer
     } else {
-        vec![0i16; n_image * 3]
+        (0..n_image as i16).map(|i| [i, 0, 0]).flatten().collect()
     };
+    print!("shift data: {:?}\n", shift_data);
 
     let mut reader = BufReader::new(&file);
     let sum = mean_images(&mut reader, nx, ny, n_image, &shift_data);
 
     let out_path = args.path.with_extension("sum");
-    save_image(sum, &out_path);
+    save_image(&sum, &out_path);
 }
 
 fn mean_images(
@@ -128,44 +132,51 @@ fn mean_images(
     n_image: usize,
     shift_data: &[i16],
 ) -> Vec<f64> {
-    let mut buffer = vec![0u16; nx];
+    let mut buffer = vec![0u16; nx * ny];
     let mut sum = vec![0f64; nx * ny];
+    let mut count = 0usize;
 
     for i in 0..n_image {
-        for y in 0..ny {
-            reader.read_u16_into::<LittleEndian>(&mut buffer).unwrap();
+        reader.read_u16_into::<LittleEndian>(&mut buffer).unwrap();
+        if shift_data[count * 3] != i as i16 {
+            continue;
+        }
 
-            let shift_x: i16 = shift_data[i * 3 + 1];
-            let shift_y: i16 = shift_data[i * 3 + 2];
+        let shift_x: i16 = shift_data[count * 3 + 1];
+        let shift_y: i16 = shift_data[count * 3 + 2];
+
+        for (y, line) in buffer.chunks_exact(nx).enumerate() {
             let new_y = y as i16 + shift_y;
 
             if new_y >= ny as i16 || new_y < 0 {
                 continue;
             }
 
-            for x in 0..nx {
+            for (x, value) in line.iter().enumerate() {
                 let new_x = x as i16 + shift_x;
                 if new_x >= nx as i16 || new_x < 0 {
                     continue;
                 }
-                sum[new_y as usize * nx + new_x as usize] += buffer[x] as f64;
+                sum[new_y as usize * nx + new_x as usize] += *value as f64;
             }
         }
+        count += 1;
     }
 
     for i in 0..nx * ny {
-        sum[i] /= n_image as f64;
+        sum[i] /= count as f64;
     }
+    print!("count: {}\n", count);
 
     sum
 }
 
-fn save_image(sum: Vec<f64>, path: &std::path::Path) {
+fn save_image(sum: &[f64], path: &std::path::Path) {
     let out_file = File::create(&path).expect("failed to create file");
     let mut writer = BufWriter::new(&out_file);
 
     for value in sum {
-        let as_u16 = value as u16;
+        let as_u16 = *value as u16;
         writer.write_u16::<LittleEndian>(as_u16).unwrap();
     }
 }
