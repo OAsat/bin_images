@@ -55,6 +55,12 @@ struct Images {
     n_image: usize,
 }
 
+impl Images {
+    fn reset_reader(&mut self) {
+        self.reader.seek(SeekFrom::Start(0)).unwrap();
+    }
+}
+
 fn get_images(args: &Cli) -> Images {
     let file = File::open(&args.path).expect("failed to open file");
     let n_image = file.metadata().unwrap().len() as usize / args.xsize / args.ysize / 2;
@@ -132,7 +138,66 @@ fn select(images: &mut Images, args: SelectArgs) {
     let out_path = args
         .output
         .unwrap_or_else(|| images.path.with_extension("selected"));
-    save_u16image(&image, &out_path);
+
+    images.reset_reader();
+    let mut mean = straight_mean(images);
+    let mut max = 0f64;
+    for (i, value) in mean.iter_mut().enumerate() {
+        let diff = (image[i] as f64 - *value).abs();
+        *value = diff;
+        if diff > max {
+            max = diff;
+        }
+    }
+    let mut new = vec![0u16; images.nx * images.ny];
+    for (i, value) in mean.iter().enumerate() {
+        new[i] = (*value / max * 100.0) as u16;
+    }
+    // let new = analyze(&image);
+    save_u16image(&new, &out_path);
+}
+
+fn analyze(image: &[u16]) -> Vec<u16> {
+    let mut result = vec![0u16; image.len()];
+    let max = *image.iter().max().unwrap() as f32;
+    for (i, value) in image.iter().enumerate() {
+        let scaled = *value as f32 / max;
+        result[i] = (scaled.powf(4.0) * max) as u16;
+    }
+    let mut small = shrink_image(&result, 512);
+    small.sort();
+    let thresh = small[small.len() - 100];
+
+    for value in result.iter_mut() {
+        if *value < thresh {
+            *value = 0;
+        } else {
+            *value = 1;
+        }
+    }
+    result
+}
+
+fn shrink_image(image: &[u16], new_size: usize) -> Vec<u16> {
+    let original_size = (image.len() as f64).sqrt() as usize;
+    let mut new_image = vec![0u16; new_size * new_size];
+    let unit = original_size / new_size;
+
+    for (new_line, original_block) in new_image
+        .chunks_exact_mut(new_size)
+        .zip(image.chunks_exact(original_size * unit))
+    {
+        let mut temp_line = vec![0f64; new_size];
+        for original_line in original_block.chunks_exact(original_size) {
+            for (i, chunk) in original_line.chunks_exact(unit).enumerate() {
+                temp_line[i] += chunk.iter().fold(0f64, |acc, &x| acc + x as f64);
+            }
+        }
+        for (i, value) in temp_line.iter().enumerate() {
+            new_line[i] = (*value / (unit as f64).powf(2.0)) as u16;
+        }
+    }
+    new_image
 }
 
 fn mean(images: &mut Images, args: MeanArgs) {
@@ -157,6 +222,26 @@ fn mean(images: &mut Images, args: MeanArgs) {
         .output
         .unwrap_or_else(|| images.path.with_extension("mean"));
     save_f64image(&sum, &out_path);
+}
+
+fn straight_mean(images: &mut Images) -> Vec<f64> {
+    let mut buffer = vec![0u16; images.nx * images.ny];
+    let mut sum = vec![0f64; images.nx * images.ny];
+
+    for _ in 0..images.n_image {
+        images
+            .reader
+            .read_u16_into::<LittleEndian>(&mut buffer)
+            .unwrap();
+        for (i, value) in buffer.iter().enumerate() {
+            sum[i] += *value as f64;
+        }
+    }
+
+    for i in 0..images.nx * images.ny {
+        sum[i] /= images.n_image as f64;
+    }
+    sum
 }
 
 fn calc_images_mean(images: &mut Images, drift_data: &[i16]) -> Vec<f64> {
